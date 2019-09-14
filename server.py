@@ -15,7 +15,7 @@ import os
 import threading
 import socket
 import time
-
+import shutil
 
 class TServer(threading.Thread):
     def __init__(self, cliente, cliente_addr, local_ip, data_port):
@@ -24,6 +24,7 @@ class TServer(threading.Thread):
         self.cliente_addr = cliente_addr
         self.iniciou = False
         self.cwd = os.getcwd()
+        self.server_cwd = os.getcwd()
         self.data_address = (local_ip, data_port)
         threading.Thread.__init__(self)
 
@@ -34,13 +35,13 @@ class TServer(threading.Thread):
             self.tcp.bind(self.data_address)
             self.tcp.listen(5)
             print("Coxexao iniciada em", str(self.data_address))
-            self.cliente.send("125 Conexao aberta, pode comecar a transferencia.\r\n".encode())
+            self.cliente.send("000 Conexao aberta, pode comecar a transferencia.\r\n".encode())
             return self.tcp.accept()
         except Exception as e:
             print("ERROR: ", str(e))
             print("Encerrando conexao")
             self.close_tcp()
-            self.cliente.send("425: Nao e possivel realizar conexao.\r\n".encode())
+            self.cliente.send("999: Nao e possivel realizar conexao.\r\n".encode())
 
     def close_tcp(self):
         print("Encerrando conexao...")
@@ -66,26 +67,34 @@ class TServer(threading.Thread):
                     func(cmd)
                 except AttributeError as e:
                     print("ERROR: Comando invalido")
-                    self.cliente.send("550 Comando invalido.\r\n".encode())
+                    self.cliente.send("110 Comando invalido.\r\n".encode())
         except Exception as e:
-            print("EROOR: ", str(e))
+            print("ERROR: ", str(e))
             self.quit('')
 
-    def quit(self, cmd):
-        print("Fechando conexao ", str(self.cliente_addr))
-        self.close_tcp()
-        self.cliente.close()
-        quit()
+    def cd(self, cmd):
+        dest = os.path.join(self.cwd, cmd[3:].strip())
+        if os.path.isdir(dest):
+            self.cwd = dest
+            msg = '111 OK \"%s\".\r\n' % self.cwd
+            self.cliente.send(msg.encode())
+        else:
+            print("ERROR 110: Diretorio nao encontrado")
+            msg = '110  Diretorio nao encontrado.\r\n'
+            self.cliente.send(msg.encode())
 
     def ls(self, cmd):
-        print(self.cwd)
+        pasta = cmd[3:].strip()
+        if len(pasta) == 0:
+            pasta = self.cwd
+        print(pasta)
         if not self.iniciou:
             cliente_data, cliente_addr = self.tcp_inic()
             self.iniciou = True
         else:
-            self.cliente.send("125 Conexao aberta, pode comecar a transferencia.\r\n".encode())
+            self.cliente.send("000 Conexao aberta\r\n".encode())
         try:
-            listdir = os.listdir(self.cwd)
+            listdir = os.listdir(pasta)
             if not len(listdir):
                 max_length = 0
             else:
@@ -97,7 +106,7 @@ class TServer(threading.Thread):
             self.cliente.send(table.encode())
 
             for i in listdir:
-                path = os.path.join(self.cwd, i)
+                path = os.path.join(pasta, i)
                 stat = os.stat(path)
                 data = '| %*s | %9s | %12s | %20s | %11s | %12s |\n' % (
                     max_length, i, 'Directory' if os.path.isdir(path) else 'File', str(stat.st_size) + 'B',
@@ -108,83 +117,85 @@ class TServer(threading.Thread):
             table = '%s\n' % ('-' * len(header))
             self.cliente.send(table.encode())
 
-            self.cliente.send(" 226 Envio ok\r\n".encode())
+            self.cliente.send(" 111 Envio ok\r\n".encode())
         except Exception as e:
-            print("ERROR: " , str(e))
-            self.cliente.send("426 Conexao fechada, transferencia abortada\r\n".encode())
+            print("ERROR 110: " , str(e))
+            self.cliente.send("110 Diretorio nao encontrado\r\n".encode())
         finally:
             print("Comando finalizado")
-            # cliente_data.close()
-            # self.close_tcp()
 
     def pwd(self, cmd):
-        msg = '257 \"%s\".\r\n' % self.cwd
+        msg = '111 \"%s\".\r\n' % self.cwd
         self.cliente.send(msg.encode())
-
-    def cd(self, cmd):
-        dest = os.path.join(self.cwd, cmd[3:].strip())
-        if os.path.isdir(dest):
-            self.cwd = dest
-            msg = '250 OK \"%s\".\r\n' % self.cwd
-            self.cliente.send(msg.encode())
-        else:
-            print("ERROR: Diretorio nao encontrado")
-            msg = '550 \"' + dest + '\": No such file or directory.\r\n'
-            self.cliente.send(msg.encode())
 
     def mkdir(self, cmd):
         path = cmd[6:].strip()
         dirname = os.path.join(self.cwd, path)
         try:
             if not path:
-                self.cliente.send("501 Faltando <dirname>.\r\n".encode())
+                self.cliente.send("101 Faltando <dirname>.\r\n".encode())
             else:
                 os.mkdir(dirname)
-                msg = '250 Directory criado: ' + dirname + '.\r\n'
+                msg = '001 Diretorio criado: ' + dirname + '.\r\n'
                 self.cliente.send(msg.encode())
         except Exception as e:
             print("ERROR: ", str(e))
-            self.cliente.send("Falha ao criar diretorio".encode())
+            self.cliente.send("110 Diretorio ja existente".encode())
 
     def rmdir(self, cmd):
         path = cmd[6:].strip()
         dirname = os.path.join(self.cwd, path)
         try:
             if not path:
-                self.cliente.send("501 Faltando <dirname>.\r\n".encode())
+                self.cliente.send("101 Faltando <dirname>.\r\n".encode())
             else:
-                os.rmdir(dirname)
-                msg = '250 Directory deleted: ' + dirname + '.\r\n'
+                shutil.rmtree(dirname, ignore_errors=True)
+                msg = '001 Diretorio removido: ' + dirname + '.\r\n'
                 self.cliente.send(msg.encode())
         except Exception as e:
             print("ERROR: ", str(e))
-            self.cliente.send("Falha ao remover diretorio".encode())
+            self.cliente.send("110 Diretorio inexistente".encode())
 
-    def delete(self, cmd):
-        path = cmd[7:].strip()
-        filename = os.path.join(self.cwd, path)
-        try:
-            if not path:
-                self.cliente.send("501 Faltando <filename>.\r\n".encode())
-            else:
-                os.remove(filename)
-                msg = '250 File deleted: ' + filename + '.\r\n'
-                self.cliente.send(msg.encode())
-        except Exception as e:
-            print("ERROR: ", str(e))
-            self.cliente.send("Falha ao deletar arquivo".encode())
+    def get(self, cmd):
+        path = cmd[4:].strip()
+        if not path:
+            self.cliente.send("101 Faltando <filename>.\r\n".encode())
+            return
+        fname = os.path.join(self.server_cwd, path)
+        if not self.iniciou:
+            cliente_data, cliente_addr = self.tcp_inic()
+            self.iniciou = True
+        else:
+            self.cliente.send("000 Conexao aberta, pode comecar a transferencia.\r\n".encode())
+        if not os.path.isfile(fname):
+            self.cliente.send("110 Arquivo nao encontrado.\r\n".encode())
+        else:
+            try:
+                file_read = open(fname, "rb")
+                data = file_read.read(1024)
+                while data:
+                    self.cliente.send(data)
+                    print("-----", data.decode())
+                    data = file_read.read(1024)
+            except Exception as e:
+                print("ERROR: ", str(e))
+                self.cliente.send("Conexao fechada, transferencia abortada".encode())
+            finally:
+                file_read.close()
+                self.cliente.send("111 Transferencia de arquivo completa".encode())
+                print("Comando finalizado")
 
     def put(self, cmd):
         path = cmd[4:].strip()
         if not path:
-            self.cliente.send("501 Faltando <filename>.\r\n".encode())
+            self.cliente.send("101 Faltando <filename>.\r\n".encode())
             return
         fname = os.path.join(self.cwd, path)
         if not self.iniciou:
             cliente_data, cliente_addr = self.tcp_inic()
             self.iniciou = True
         else:
-            self.cliente.send("125 Conexao aberta, pode comecar a transferencia.\r\n".encode())
+            self.cliente.send("000 Conexao aberta, pode comecar a transferencia.\r\n".encode())
         try:
             file_write = open(fname, 'w')
             print("poraaaaaaaaaaaaaa")
@@ -196,7 +207,7 @@ class TServer(threading.Thread):
                     break
                 file_write.write(str(data))
 
-            self.cliente.send("226 Transferencia de arquivo completa.\r\n".encode())
+            self.cliente.send("111 Transferencia de arquivo completa.\r\n".encode())
         except Exception as e:
             print("ERROR: ", str(e))
             self.cliente.send("Falha ao enviar arquivo".encode())
@@ -206,36 +217,25 @@ class TServer(threading.Thread):
             # self.close_tcp()
             file_write.close()
 
-    def get(self, cmd):
-        path = cmd[4:].strip()
-        if not path:
-            self.cliente.send("501 Faltando <filename>.\r\n".encode())
-            return
-        fname = os.path.join(self.cwd, path)
-        print("11", fname, "---", self.cwd, "***", path)
-        if not self.iniciou:
-            cliente_data, cliente_addr = self.tcp_inic()
-            self.iniciou = True
-        else:
-            self.cliente.send("125 Conexao aberta, pode comecar a transferencia.\r\n".encode())
-        if not os.path.isfile(fname):
-            self.cliente.send("550 Arquivo nao encontrado.\r\n".encode())
-        else:
-            try:
-                file_read = open(fname, "r")
-                data = file_read.read(1024)
-                while data:
-                    self.cliente.send(data.encode())
-                    data = file_read.read(1024)
-                self.cliente.send("226 Transferencia de arquivo completa.\r\n".encode())
-            except Exception as e:
-                print("ERROR: ", str(e))
-                self.cliente.send("Conexao fechada, transferencia abortada".encode())
-            finally:
-                print("Comando finalizado")
-                # cliente_data.close()
-                # self.close_tcp()
-                file_read.close()
+    def delete(self, cmd):
+        path = cmd[7:].strip()
+        filename = os.path.join(self.cwd, path)
+        try:
+            if not path:
+                self.cliente.send("101 Faltando <filename>.\r\n".encode())
+            else:
+                os.remove(filename)
+                msg = '010 File deleted: ' + filename + '.\r\n'
+                self.cliente.send(msg.encode())
+        except Exception as e:
+            print("ERROR: ", str(e))
+            self.cliente.send("011 Arquivo inexistente".encode())
+
+    def quit(self, cmd):
+        print("Fechando conexao ", str(self.cliente_addr))
+        self.close_tcp()
+        self.cliente.close()
+        quit()
 
 
 class Server:

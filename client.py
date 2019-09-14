@@ -9,6 +9,7 @@ class Client:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.addr = addr
         self.port = port
+        self.cwd = os.getcwd()
         self.conectou = False
         self.data_port = data_port
 
@@ -33,19 +34,27 @@ class Client:
             try:
                 self.sock.send(command.encode())
                 data = self.sock.recv(1024).decode()
-                print(data, "pqp")
+                print(data)
                 if cmd == 'quit':
                     self.close()
-                elif cmd == 'ls' or cmd == 'get' or cmd == 'put':
-                    if data and (data[0:3] == '125'):
+                elif 'ls' in cmd:
+                    if data and (data[0:3] == '000'):
+                        if 'ls' in cmd:
+                            cmd = 'ls'
                         func = getattr(self, cmd)
                         func(path)
                         run = True
                         while run:
                             data = self.sock.recv(1024).decode()
                             print(data)
-                            if '226' in data:
+                            if '111' in data or '110' in data:
                                 run = False
+                elif cmd == 'get' or cmd == 'put':
+                    if data and (data[0:3] == '000'):
+                        func = getattr(self, cmd)
+                        func(path)
+                elif 'cd' in cmd:
+                    self.cwd = data[8:-4]
             except Exception as e:
                 print(str(e))
                 self.close()
@@ -67,6 +76,26 @@ class Client:
         except Exception as e:
             print(str(e))
 
+    def get(self, path):
+        print("Copiando ", path, " do servidor")
+        try:
+            if not self.conectou:
+                self.connect_tcp()
+                self.conectou = True
+            fname = os.path.join(self.cwd, path)
+            f = open(fname, 'wb')
+            msg = self.sock.recv(1024)
+            print("Antes a", msg.decode())
+            while msg.decode() != "111 Transferencia de arquivo completa":
+                print("Recebendo arquivo ", msg.decode())
+                f.write(msg)
+                msg = self.sock.recv(1024)
+        except Exception as e:
+            print(str(e))
+        finally:
+            f.close()
+            print(msg.decode())
+
     def put(self, path):
         print("Enviando copia", path, " para servidor")
         try:
@@ -75,31 +104,10 @@ class Client:
                 self.conectou = True
 
             f = open(path, 'r')
-            print("1111111111111")
             upload = f.read()
-            print("000000000000", upload, "----", type(upload), path, f)
             while upload:
-                print("----------", upload, "---------", path)
                 self.tcp.send(upload.encode())
                 upload = f.read()
-        except Exception as e:
-            print(str(e))
-        finally:
-            f.close()
-
-    def get(self, path):
-        print("Copiando ", path, " do servidor")
-        try:
-            if not self.conectou:
-                self.connect_tcp()
-                self.conectou = True
-
-            f = open(path, 'w')
-            while True:
-                download = self.tcp.recv(1024).decode()
-                if not download:
-                    break
-                f.write(download)
         except Exception as e:
             print(str(e))
         finally:
