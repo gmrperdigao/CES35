@@ -19,7 +19,6 @@ import shutil
 
 class TServer(threading.Thread):
     def __init__(self, cliente, cliente_addr, local_ip, data_port):
-        self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.cliente = cliente
         self.cliente_addr = cliente_addr
         self.iniciou = False
@@ -31,6 +30,7 @@ class TServer(threading.Thread):
     def tcp_inic(self):
         try:
             print("Criando conexao tcp em ", str(self.data_address), "...")
+            self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.tcp.bind(self.data_address)
             self.tcp.listen(5)
@@ -56,15 +56,20 @@ class TServer(threading.Thread):
                     break
                 print("Comando ", cmd, "enviado de ", str(self.cliente_addr))
                 try:
-                    if cmd[0:3] == 'get' or cmd[0:3] == 'put' or  cmd[0:3] == 'pwd':
+                    if cmd[0:3] == 'get' or cmd[0:3] == 'put' or cmd[0:3] == 'pwd':
                         func = getattr(self, cmd[:3].strip().lower())
+                        func(cmd)
                     elif cmd[0:5] == 'mkdir' or cmd[0:5] == 'rmdir' or cmd[0:5] == 'close' or cmd[0:5] == 'open' or cmd[0:5] == 'quit':
                         func = getattr(self, cmd[0:5].strip().lower())
+                        func(cmd)
                     elif cmd[0:6] == 'delete':
                         func = getattr(self, cmd[0:6].strip().lower())
+                        func(cmd)
                     elif cmd[0:2] == 'cd' or cmd[0:2] == 'ls':
                         func = getattr(self, cmd[0:2].strip().lower())
-                    func(cmd)
+                        func(cmd)
+                    else:
+                        self.cliente.send("110 Comando invalido.\r\n".encode())
                 except AttributeError as e:
                     print("ERROR: Comando invalido")
                     self.cliente.send("110 Comando invalido.\r\n".encode())
@@ -88,11 +93,7 @@ class TServer(threading.Thread):
         if len(pasta) == 0:
             pasta = self.cwd
         print(pasta)
-        if not self.iniciou:
-            cliente_data, cliente_addr = self.tcp_inic()
-            self.iniciou = True
-        else:
-            self.cliente.send("000 Conexao aberta\r\n".encode())
+        cliente_data, cliente_addr = self.tcp_inic()
         try:
             listdir = os.listdir(pasta)
             if not len(listdir):
@@ -123,6 +124,7 @@ class TServer(threading.Thread):
             self.cliente.send("110 Diretorio nao encontrado\r\n".encode())
         finally:
             print("Comando finalizado")
+            self.close_tcp()
 
     def pwd(self, cmd):
         msg = '111 \"%s\".\r\n' % self.cwd
@@ -162,11 +164,7 @@ class TServer(threading.Thread):
             self.cliente.send("101 Faltando <filename>.\r\n".encode())
             return
         fname = os.path.join(self.server_cwd, path)
-        if not self.iniciou:
-            cliente_data, cliente_addr = self.tcp_inic()
-            self.iniciou = True
-        else:
-            self.cliente.send("000 Conexao aberta, pode comecar a transferencia.\r\n".encode())
+        cliente_data, cliente_addr = self.tcp_inic()
         if not os.path.isfile(fname):
             self.cliente.send("110 Arquivo nao encontrado.\r\n".encode())
         else:
@@ -175,15 +173,16 @@ class TServer(threading.Thread):
                 data = file_read.read(1024)
                 while data:
                     self.cliente.send(data)
-                    print("-----", data.decode())
                     data = file_read.read(1024)
+                file_read.close()
+                self.cliente.send("111 Transferencia de arquivo completa".encode())
             except Exception as e:
                 print("ERROR: ", str(e))
                 self.cliente.send("Conexao fechada, transferencia abortada".encode())
             finally:
-                file_read.close()
-                self.cliente.send("111 Transferencia de arquivo completa".encode())
                 print("Comando finalizado")
+                cliente_data.close()
+                self.close_tcp()
 
     def put(self, cmd):
         path = cmd[4:].strip()
@@ -191,30 +190,22 @@ class TServer(threading.Thread):
             self.cliente.send("101 Faltando <filename>.\r\n".encode())
             return
         fname = os.path.join(self.cwd, path)
-        if not self.iniciou:
-            cliente_data, cliente_addr = self.tcp_inic()
-            self.iniciou = True
-        else:
-            self.cliente.send("000 Conexao aberta, pode comecar a transferencia.\r\n".encode())
+        print("091019019", fname)
+        cliente_data, cliente_addr = self.tcp_inic()
         try:
-            file_write = open(fname, 'w')
-            print("poraaaaaaaaaaaaaa")
-            while True:
-                print("laalalalala")
-                data = self.cliente.recv(4096)
-                print("aaaaaaaaaaaaaaaa")
-                if not data:
-                    break
-                file_write.write(str(data))
-
-            self.cliente.send("111 Transferencia de arquivo completa.\r\n".encode())
+            file_write = open(fname, 'wb')
+            msg = self.cliente.recv(1024)
+            while msg.decode() != "111 Transferencia de arquivo completa":
+                print("Recebendo arquivo ", msg.decode())
+                file_write.write(msg)
+                msg = self.cliente.recv(1024)
         except Exception as e:
             print("ERROR: ", str(e))
             self.cliente.send("Falha ao enviar arquivo".encode())
         finally:
             print("Comando finalizado")
-            # cliente_data.close()
-            # self.close_tcp()
+            cliente_data.close()
+            self.close_tcp()
             file_write.close()
 
     def delete(self, cmd):
@@ -240,18 +231,18 @@ class TServer(threading.Thread):
 
 class Server:
     def __init__(self, port, data_port):
-        self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.address = '0.0.0.0'
         self.port = port
         self.data_port = data_port
 
     def start_tcp(self):
-        self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_address = (self.address, self.port)
         try:
             print("Criando conexao TCP em: ", str(self.address), ":", self.port)
-            self.tcp.bind(server_address)
-            self.tcp.listen(5)
+            self.sock.bind(server_address)
+            self.sock.listen(5)
             print("Servidor conectado")
         except Exception as e:
             print("Falha em criar servidor: ", str(e))
@@ -262,18 +253,18 @@ class Server:
         try:
             while True:
                 print("Esperando conexao")
-                cliente, cliente_addr = self.tcp.accept()
+                cliente, cliente_addr = self.sock.accept()
                 thread = TServer(cliente, cliente_addr, self.address, self.data_port)
                 thread.daemon = True
                 thread.start()
         except KeyboardInterrupt:
             print("Fechando conexao TCP")
-            self.tcp.close()
+            self.sock.close()
             quit()
 
 
 if __name__ == "__main__":
     port = 2121
-    data_port = 10020
+    data_port = 10001
     server = Server(port, data_port)
     server.start()
