@@ -9,6 +9,7 @@ class Client:
         self.addr = addr
         self.port = port
         self.cwd = os.getcwd()
+        self.server_cwd = os.getcwd()
         self.conectou = False
         self.data_port = data_port
 
@@ -81,16 +82,31 @@ class Client:
         try:
             self.connect_tcp()
             fname = os.path.join(self.cwd, path)
-            f = open(fname, 'wb')
-            msg = self.sock.recv(1024)
-            while msg.decode() != "111 Transferencia de arquivo completa":
-                print("Recebendo arquivo ")
-                f.write(msg)
+            if os.path.exists(fname):
                 msg = self.sock.recv(1024)
+                command = input(msg.decode())
+                self.sock.send(command.encode())
+                while True:
+                    msg = self.sock.recv(1024)
+                    if msg.decode() == "deletado" or msg.decode() == "nao":
+                        break
+            else:
+                while True:
+                    msg = self.sock.recv(1024)
+                    if msg.decode() == "ok":
+                        break
+            if msg.decode() != "nao":
+                f = open(fname, 'wb')
+                msg = self.sock.recv(1024)
+                while msg.decode() != "111 Transferencia de arquivo completa":
+                    print("Recebendo arquivo ")
+                    print(msg.decode())
+                    f.write(msg)
+                    msg = self.sock.recv(1024)
+                f.close()
         except Exception as e:
             print(str(e))
         finally:
-            f.close()
             self.tcp.close()
             print("111 Transferencia de arquivo completa")
 
@@ -100,20 +116,38 @@ class Client:
             print("110 Arquivo nao encontrado.\r\n")
         else:
             try:
-                print("Enviando copia", path, " para servidor")
-                self.connect_tcp()
-                fname = os.path.join(self.cwd, path)
-                f = open(fname, 'rb')
-                data = f.read(1024)
-                while data:
-                    self.sock.send(data)
+                if os.path.exists(os.path.join(self.server_cwd, path)):
+                    command = input("Arquivo ja existe, deseja sobrescrever? [s/n].\r\n")
+                    if command == 'n':
+                        pass
+                    elif command == 's':
+                        os.remove(os.path.join(self.server_cwd, path))
+                        print("Enviando copia", path, " para servidor")
+                        self.connect_tcp()
+                        fname = os.path.join(self.cwd, path)
+                        f = open(fname, 'rb')
+                        data = f.read(1024)
+                        while data:
+                            self.sock.send(data)
+                            data = f.read(1024)
+                        f.close()
+                        self.tcp.close()
+                        self.connect_tcp()
+                else:
+                    print("Enviando copia", path, " para servidor")
+                    self.connect_tcp()
+                    fname = os.path.join(self.cwd, path)
+                    f = open(fname, 'rb')
                     data = f.read(1024)
-                f.close()
+                    while data:
+                        self.sock.send(data)
+                        data = f.read(1024)
+                    f.close()
+                    self.tcp.close()
+                    self.connect_tcp()
             except Exception as e:
                 print(str(e))
             finally:
-                self.tcp.close()
-                self.connect_tcp()
                 print("111 Transferencia de arquivo completa")
                 self.sock.send("111 Transferencia de arquivo completa".encode())
                 self.tcp.close()

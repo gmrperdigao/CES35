@@ -44,6 +44,20 @@ class TServer(threading.Thread):
             self.close_tcp()
             self.cliente.send("999: Nao e possivel realizar conexao.\r\n".encode())
 
+    def getaux(self):
+        try:
+            self.tcp.close()
+            self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.tcp.bind(self.data_address)
+            self.tcp.listen(5)
+            self.cliente.send("111 Transferencia de arquivo completa".encode())
+        except Exception as e:
+            print("ERROR: ", str(e))
+            print("Encerrando conexao")
+            self.close_tcp()
+            self.cliente.send("999: Nao e possivel realizar conexao.\r\n".encode())
+
     def close_tcp(self):
         print("Encerrando conexao...")
         self.tcp.close()
@@ -176,19 +190,38 @@ class TServer(threading.Thread):
             self.cliente.send("110 Arquivo nao encontrado.\r\n".encode())
         else:
             try:
-                file_read = open(fname, "rb")
-                data = file_read.read(1024)
-                while data:
-                    self.cliente.send(data)
+                if os.path.exists(os.path.join(self.cwd, path)):
+                    self.cliente.send("Arquivo ja existe, deseja sobrescrever? [s/n].\r\n".encode())
+                    msg = self.cliente.recv(1024)
+                    if msg.decode() == 'n':
+                        self.cliente.send("nao".encode())
+                        self.cliente.send("111 Transferencia de arquivo completa".encode())
+                    elif msg.decode() == 's':
+                        os.remove(os.path.join(self.cwd, path))
+                        self.cliente.send("deletado".encode())
+                        file_read = open(fname, "rb")
+                        data = file_read.read(1024)
+                        while data:
+                            self.cliente.send(data)
+                            data = file_read.read(1024)
+                        file_read.close()
+                        cliente_data.close()
+                        self.getaux()
+                else:
+                    self.cliente.send("ok".encode())
+                    file_read = open(fname, "rb")
                     data = file_read.read(1024)
-                file_read.close()
-                self.cliente.send("111 Transferencia de arquivo completa".encode())
+                    while data:
+                        self.cliente.send(data)
+                        data = file_read.read(1024)
+                    file_read.close()
+                    cliente_data.close()
+                    self.getaux()
             except Exception as e:
                 print("ERROR: ", str(e))
                 self.cliente.send("Conexao fechada, transferencia abortada".encode())
             finally:
                 print("Comando finalizado")
-                cliente_data.close()
                 self.close_tcp()
 
     def put(self, cmd):
