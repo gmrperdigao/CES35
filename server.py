@@ -17,6 +17,7 @@ import socket
 import time
 import shutil
 
+
 class TServer(threading.Thread):
     def __init__(self, cliente, cliente_addr, local_ip, data_port):
         self.cliente = cliente
@@ -125,6 +126,12 @@ class TServer(threading.Thread):
         finally:
             print("Comando finalizado")
             self.close_tcp()
+
+    def open(self, cmd):
+        self.cliente.send("Aberto".encode())
+
+    def close(self, cmd):
+        self.cliente.send("Fechado".encode())
 
     def pwd(self, cmd):
         msg = '111 \"%s\".\r\n' % self.cwd
