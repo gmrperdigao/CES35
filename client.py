@@ -84,7 +84,7 @@ class Client:
             f = open(fname, 'wb')
             msg = self.sock.recv(1024)
             while msg.decode() != "111 Transferencia de arquivo completa":
-                print("Recebendo arquivo ", msg.decode())
+                print("Recebendo arquivo ")
                 f.write(msg)
                 msg = self.sock.recv(1024)
         except Exception as e:
@@ -92,9 +92,11 @@ class Client:
         finally:
             f.close()
             self.tcp.close()
+            print("111 Transferencia de arquivo completa")
 
     def put(self, path):
-        if not os.path.isfile(path):
+        fname = os.path.join(self.cwd, path)
+        if not os.path.isfile(fname):
             print("110 Arquivo nao encontrado.\r\n")
         else:
             try:
@@ -102,17 +104,18 @@ class Client:
                 self.connect_tcp()
                 fname = os.path.join(self.cwd, path)
                 f = open(fname, 'rb')
-                data = f.read()
+                data = f.read(1024)
                 while data:
                     self.sock.send(data)
                     data = f.read(1024)
-                self.sock.send("111 Transferencia de arquivo completa".encode())
-                print("111 Transferencia de arquivo completa")
                 f.close()
             except Exception as e:
                 print(str(e))
             finally:
-                f.close()
+                self.tcp.close()
+                self.connect_tcp()
+                print("111 Transferencia de arquivo completa")
+                self.sock.send("111 Transferencia de arquivo completa".encode())
                 self.tcp.close()
 
     def close(self):

@@ -189,15 +189,14 @@ class TServer(threading.Thread):
         if not path:
             self.cliente.send("101 Faltando <filename>.\r\n".encode())
             return
-        fname = os.path.join(self.cwd, path)
-        print("091019019", fname)
+        fname = os.path.join(self.server_cwd, path)
         cliente_data, cliente_addr = self.tcp_inic()
         try:
             file_write = open(fname, 'wb')
             msg = self.cliente.recv(1024)
             while msg.decode() != "111 Transferencia de arquivo completa":
-                print("Recebendo arquivo ", msg.decode())
                 file_write.write(msg)
+                print("Recebendo arquivo ")
                 msg = self.cliente.recv(1024)
         except Exception as e:
             print("ERROR: ", str(e))
