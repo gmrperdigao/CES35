@@ -138,7 +138,7 @@ void B_input(packet)
         /// Se nao esta corrompido, envia pacote para layer5 e atualiza seq number de B
         struct msg message;
         memcpy(message.data, packet.payload, 20);
-        tolayer5(1, message);
+        tolayer5(1, message.data);
         next_B = (1 + next_B)%2;
     }
     /// Envia ACK para A

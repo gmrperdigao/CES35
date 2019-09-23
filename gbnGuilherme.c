@@ -168,7 +168,7 @@ void B_input(packet)
         /// Verifica se o pacote recebido eh o esperado da sequencia
         if(packet.seqnum == B.next_B){
             /// Se for igual deve enviar para layer5
-            tolayer5(1, B.held_pkt);
+            tolayer5(1, B.held_pkt.payload);
             /// Enviar ACK para A
             B.held_pkt.acknum = B.next_B;
             B.held_pkt.checksum = checksumming(&B.held_pkt);
